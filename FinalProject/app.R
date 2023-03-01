@@ -89,12 +89,8 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
                               #pittsburgh.fields.load
                               radioButtons(inputId = "showFields",
                                            label = "Show Fields",
-                                           choices = c("With Lights" = 1, "Without Lights" = 0, "All" = 2),
+                                           choices = c("With Lights" = 1, "Without Lights" = 0, "Both" = 2),
                                            selected = c("With Lights" = 1)),
-                              radioButtons(inputId = "showPlaygrounds",
-                                           label = "Show Playgrounds",
-                                           choices = c("Yes", "No"),
-                                           selected = "Yes"),
                               pickerInput(inputId = "neighborhood",
                                           label = "Neighborhood",
                                           choices = unique(sort(pittsburgh.neighborhoods.load$hood)),
@@ -178,7 +174,7 @@ server <- function(input, output) {
     return(crime.SP)
   })
   
-  # Filter fields based on user input (lights/no lights/all)
+  # Filter fields based on user input (lights/no lights/all) - need to add this back in
   fieldInputs <- reactive({
     fields_in_neighborhoods <- st_filter(pittsburgh.fields.load, neighborhoods())
     return(fields_in_neighborhoods)
@@ -200,37 +196,37 @@ server <- function(input, output) {
   activities <- reactive({
     activities_in_neighborhoods <- st_filter(pittsburgh.activities.load, neighborhoods())
     activities_filtered <- activities_in_neighborhoods %>% filter(type %in% input$activity)
-    print(nrow(neighborhoods()))
-    print(nrow(activities_filtered))
     return (activities_filtered)
   })
 
   output$leaflet <- renderLeaflet({
     leaflet() %>%
       addTiles(urlTemplate = "http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga", attribution = "Google", group = "Google") %>%
-      addProviderTiles("Stamen.Toner", group = "Stam") %>%
+      addProviderTiles("Esri.WorldImagery", group = "Satellite") %>%
+      #addProviderTiles("Jawg.Matrix", group = "Matrix") %>%
       setView(-79.94073, 40.448544, 13) %>%
-      addLayersControl(baseGroups = c("Google", "Stam"))
+      addLayersControl(baseGroups = c("Google", "Satellite"),
+                       overlayGroups = c("Crime", "Fields", "Playgrounds", "Activities"),
+                       options = layersControlOptions(collapsed = FALSE)) %>%
+      hideGroup("Crime")
   })
   
   observe({
     active <- activities()
-    print(unique(active$type))
-    View(active)
     leafletProxy("leaflet", data = active) %>%
-      clearGroup(group = "active") %>%
+      clearGroup(group = "Activities") %>%
       ## Add more info to label later, also make clickable in center
-      addPolygons(popup = ~paste0("<b>", name, "</b>"), group = "active", layerId = ~id, fill = TRUE, color = "orange") %>%
-      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[unlist(type)], popup = ~paste0("<b>", name, "</b>"), group = "active", layerId = ~id)
+      addPolygons(popup = ~paste0("<b>", name, "</b>"), group = "Activities", layerId = ~id, fill = TRUE, color = "orange") %>%
+      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[unlist(type)], popup = ~paste0("<b>", name, "</b>"), group = "Activities", layerId = ~id)
   })
   
   observe({
     fields <- fieldInputs()
     leafletProxy("leaflet", data = fields) %>%
-      clearGroup(group = "fields") %>%
+      clearGroup(group = "Fields") %>%
       ## Add more info to label later, also make clickable in center
-      addPolygons(popup = ~paste0("<b>", park, "</b>"), group = "fields", layerId = ~id, fill = TRUE, color = "green") %>%
-      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[has_lights], popup = ~paste0("<b>", park, "</b>"), group = "fields", layerId = ~id)
+      addPolygons(popup = ~paste0("<b>", park, "</b>"), group = "Fields", layerId = ~id, fill = TRUE, color = "green") %>%
+      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[has_lights], popup = ~paste0("<b>", park, "</b>"), group = "Fields", layerId = ~id)
   })
   
   observe({
@@ -244,15 +240,15 @@ server <- function(input, output) {
   observe({
     play <- playgrounds()
     leafletProxy("leaflet", data = play) %>%
-      clearGroup(group = "playgrounds") %>%
-      addAwesomeMarkers(icon = ~icons[ada_accessible], popup = ~paste0("<b>", name, "</b>"), group = "playgrounds", layerId = ~id)
+      clearGroup(group = "Playgrounds") %>%
+      addAwesomeMarkers(icon = ~icons[ada_accessible], popup = ~paste0("<b>", name, "</b>"), group = "Playgrounds", layerId = ~id)
   })
   
   observe({
     crime <- crimeData()
     leafletProxy("leaflet", data = crime) %>%
-      clearGroup(group = "crime") %>%
-      addHeatmap(group ="crime")
+      clearGroup(group = "Crime") %>%
+      addHeatmap(group ="Crime")
   })
   
   # Subset to data Only on screen - will need to extract lat and lon from playground dataset later 
