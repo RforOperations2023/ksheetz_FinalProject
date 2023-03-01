@@ -15,12 +15,15 @@
 library(shiny)
 library(shinythemes)
 library(leaflet)
+library(httr)
 library(leaflet.extras)
 library(shinyWidgets)
 library(plotly)
 library(sf)
 library(shinyjs)
+library(jsonlite)
 library(dplyr)
+library(DT)
 
 # Pittsburgh Playing Fields
 pittsburgh.fields.load <- st_read("https://data.wprdc.org/dataset/87c77ec3-db98-4b2a-8891-d9b577b4c44d/resource/d569b513-44c0-4b65-9241-cc3d5c506760/download/fields_img.geojson")
@@ -28,7 +31,9 @@ pittsburgh.fields.load <- st_read("https://data.wprdc.org/dataset/87c77ec3-db98-
 # Pittsbugh Playground Equipment
 pittsburgh.playground.load <- st_read("https://data.wprdc.org/dataset/4b9c5947-5645-4dbc-a7b6-eb323418fe02/resource/eb0cf52f-3da1-4b77-8f6d-891dff8adfa0/download/playgroundequipment_img.geojson")
 pittsburgh.playground.load$ada_accessible <- ifelse(pittsburgh.playground.load$ada_accessible == 0, "NON_ADA", "ADA")
-View(pittsburgh.playground.load)
+#View(pittsburgh.playground.load)
+pittsburgh.activities.load <- st_read("https://data.wprdc.org/dataset/8da92664-22a4-42b8-adae-1950048d70aa/resource/96d327a8-fb12-4174-a30d-7ec9a9920237/download/courts_img.geojson")
+#View(pittsburgh.courts.load)
 
 pittsburgh.neighborhoods.load <- st_read("https://data.wprdc.org/dataset/e672f13d-71c4-4a66-8f38-710e75ed80a4/resource/4af8e160-57e9-4ebf-a501-76ca1b42fc99/download/pittsburghpaneighborhoods-.geojson")
 
@@ -37,13 +42,13 @@ pittsburgh.neighborhoods.load <- st_read("https://data.wprdc.org/dataset/e672f13
 #View(parks_in_neighborhoods)
 
 icons <- awesomeIconList(
-  ADA = makeAwesomeIcon(icon = "child", library = "fa", markerColor = "yellow"),
-  NON_ADA = makeAwesomeIcon(icon = "cloud", library = "fa", markerColor = "blue")
+  ADA = makeAwesomeIcon(icon = "child", library = "fa", markerColor = "green"),
+  NON_ADA = makeAwesomeIcon(icon = "wheelchair", library = "fa", markerColor = "blue")
 )
 
 # Define UI for application that draws a histogram
 # Define UI for application
-ui <- navbarPage("Pittsburgh Playgrounds and Fields",
+ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Entertainment (PRANCE)",
                  theme = shinytheme("united"),
                  tabPanel("Map",
                           sidebarLayout(
@@ -63,7 +68,14 @@ ui <- navbarPage("Pittsburgh Playgrounds and Fields",
                                           choices = unique(sort(pittsburgh.neighborhoods.load$hood)),
                                           options = list('actions-box' = TRUE),
                                           multiple = TRUE,
-                                          selected = unique(sort(pittsburgh.neighborhoods.load$hood)))
+                                          selected = unique(sort(pittsburgh.neighborhoods.load$hood))),
+                              pickerInput(inputId = "activity",
+                                          label = "Activity",
+                                          choices = unique(sort(pittsburgh.activities.load$type)),
+                                          options = list('actions-box' = TRUE),
+                                          multiple = TRUE,
+                                          selected = unique(sort(pittsburgh.activities.load$type))),
+                              actionButton("run", "Run Query", icon = icon("play"))
                             ),
                             mainPanel(
                               # Using Shiny JS
@@ -92,24 +104,41 @@ ui <- navbarPage("Pittsburgh Playgrounds and Fields",
                  # Data Table Pannel
                  tabPanel("Data",
                           fluidPage(
-                            #wellPanel(DT::dataTableOutput("table"))
+                            #Change this later away from crime data
+                            wellPanel(DT::dataTableOutput("results"))
                           )
                  )
 )
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
+  crimeData <- eventReactive(input$run, {
+    print("Trying")
+    # URL Encode the query
+    q <- "SELECT * from \"1797ead8-8262-41cc-9099-cbc8a161924b\""
+    formatQuery <- URLencode(q, repeated = TRUE)
+    # Build URL for GET request
+    url <- paste0("https://data.wprdc.org/api/3/action/datastore_search_sql?sql=", formatQuery)
+    # Run Get Request
+    g <- GET(url)
+    # Check if there's an error
+    if (g$status_code != 200) {
+      # Send error to table
+      results <- as_tibble(content(g)$error$info)
+    } else {
+      # Retrieve and display the results if successful
+      results <- fromJSON(content(g, "text"))$result$records
+    }
+    results <- results %>% filter(!is.na(X))
+    print("Trying More")
+    View(results)
+    return(results)
+  })
   
   # Filter fields based on user input (lights/no lights/all)
   fieldInputs <- reactive({
-    fields <- pittsburgh.fields.load
-    req(input$showFields)
-    if (input$showFields == 2) {
-      return (fields)
-    } else {
-      fields <- subset(fields, has_lights == input$showFields)
-      return (fields)
-    }
+    fields_in_neighborhoods <- st_filter(pittsburgh.fields.load, neighborhoods())
+    return(fields_in_neighborhoods)
   })
   
   neighborhoods <- reactive({
@@ -120,9 +149,16 @@ server <- function(input, output) {
   playgrounds <- reactive({
     # https://stackoverflow.com/questions/67724714/finding-points-with-polygon-in-sf-package
     playgrounds_in_neighborhoods <-  st_filter(pittsburgh.playground.load, neighborhoods())
-    print(nrow(neighborhoods()))
-    print(nrow(playgrounds_in_neighborhoods))
+    #print(nrow(neighborhoods()))
+    #print(nrow(playgrounds_in_neighborhoods))
     return (playgrounds_in_neighborhoods)
+  })
+  
+  activities <- reactive({
+    activities_in_neighborhoods <- st_filter(pittsburgh.activities.load, neighborhoods())
+    #print(nrow(neighborhoods()))
+    #print(nrow(activities_in_neighborhoods))
+    return (activities_in_neighborhoods)
   })
 
   output$leaflet <- renderLeaflet({
@@ -131,6 +167,14 @@ server <- function(input, output) {
       addProviderTiles(provider = providers$Wikimedia, group = "Wiki") %>%
       setView(-79.94073, 40.448544, 13) %>%
       addLayersControl(baseGroups = c("Google", "Wiki"))
+  })
+  
+  observe({
+    active <- activities()
+    leafletProxy("leaflet", data = active) %>%
+      clearGroup(group = "active") %>%
+      ## Add more info to label later, also make clickable in center
+      addPolygons(popup = ~paste0("<b>", name, "</b>"), group = "active", layerId = ~id, fill = TRUE, color = "orange")
   })
   
   observe({
@@ -165,6 +209,14 @@ server <- function(input, output) {
     
     #subset(greenInfInputs(), latitude >= latRng[1] & latitude <= latRng[2] & longitude >= lngRng[1] & longitude <= lngRng[2])
   })
+  # Display results in Table
+  output$results <- DT::renderDataTable(
+    crimeData(),
+    extensions = 'Buttons',
+    options = list(scrollX = TRUE,
+                   dom = 'Bplfrti',
+                   buttons = c('copy', 'csv', 'excel')))
+
 }
 
 # Run the application 
