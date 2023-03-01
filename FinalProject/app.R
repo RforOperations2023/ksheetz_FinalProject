@@ -75,7 +75,7 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
                                           options = list('actions-box' = TRUE),
                                           multiple = TRUE,
                                           selected = unique(sort(pittsburgh.activities.load$type))),
-                              actionButton("run", "Run Query", icon = icon("play"))
+                              actionButton("run", "Show Crime", icon = icon("play"))
                             ),
                             mainPanel(
                               # Using Shiny JS
@@ -112,8 +112,7 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
-  crimeData <- eventReactive(input$run, {
-    print("Trying")
+  crimeData <- eventReactive(input$neighborhood, {
     # URL Encode the query
     q <- "SELECT * from \"1797ead8-8262-41cc-9099-cbc8a161924b\""
     formatQuery <- URLencode(q, repeated = TRUE)
@@ -124,15 +123,17 @@ server <- function(input, output) {
     # Check if there's an error
     if (g$status_code != 200) {
       # Send error to table
-      results <- as_tibble(content(g)$error$info)
+      crime <- as_tibble(content(g)$error$info)
     } else {
       # Retrieve and display the results if successful
-      results <- fromJSON(content(g, "text"))$result$records
+      crime <- fromJSON(content(g, "text"))$result$records
     }
-    results <- results %>% filter(!is.na(X))
-    print("Trying More")
-    View(results)
-    return(results)
+    # Filter out values without X and Y coordinates
+    crime <- crime %>% filter(!is.na(X))
+    crime.SP <- st_as_sf(crime, coords = c("X", "Y"), crs = 4326)
+    #View(crime.SP)
+    crime.SP <- st_filter(crime.SP, neighborhoods())
+    return(crime.SP)
   })
   
   # Filter fields based on user input (lights/no lights/all)
@@ -198,6 +199,13 @@ server <- function(input, output) {
     leafletProxy("leaflet", data = play) %>%
       clearGroup(group = "playgrounds") %>%
       addAwesomeMarkers(icon = ~icons[ada_accessible], popup = ~paste0("<b>", name, "</b>"), group = "playgrounds", layerId = ~id)
+  })
+  
+  observe({
+    crime <- crimeData()
+    leafletProxy("leaflet", data = crime) %>%
+      clearGroup(group = "crime") %>%
+      addHeatmap(group ="crime")
   })
   
   # Subset to data Only on screen - will need to extract lat and lon from playground dataset later 
