@@ -23,17 +23,36 @@ library(sf)
 library(shinyjs)
 library(jsonlite)
 library(dplyr)
+library(stringr)
 library(DT)
 
 # Pittsburgh Playing Fields
 pittsburgh.fields.load <- st_read("https://data.wprdc.org/dataset/87c77ec3-db98-4b2a-8891-d9b577b4c44d/resource/d569b513-44c0-4b65-9241-cc3d5c506760/download/fields_img.geojson")
+# Get field Centroids, join back in to dataframe
+pittsburgh.fields.cent <- pittsburgh.fields.load %>%
+  st_centroid() %>%
+  mutate(longitude = sf::st_coordinates(.)[,1],
+         latitude = sf::st_coordinates(.)[,2]) %>%
+  st_set_geometry(NULL)
+pittsburgh.fields.load <- pittsburgh.fields.load %>%
+  left_join(pittsburgh.fields.cent)
+pittsburgh.fields.load$has_lights <- ifelse(pittsburgh.fields.load$has_lights == 0, "Unlit", "Lit")
 #View(pittsburgh.fields.load)
+
 # Pittsbugh Playground Equipment
 pittsburgh.playground.load <- st_read("https://data.wprdc.org/dataset/4b9c5947-5645-4dbc-a7b6-eb323418fe02/resource/eb0cf52f-3da1-4b77-8f6d-891dff8adfa0/download/playgroundequipment_img.geojson")
 pittsburgh.playground.load$ada_accessible <- ifelse(pittsburgh.playground.load$ada_accessible == 0, "NON_ADA", "ADA")
 #View(pittsburgh.playground.load)
 pittsburgh.activities.load <- st_read("https://data.wprdc.org/dataset/8da92664-22a4-42b8-adae-1950048d70aa/resource/96d327a8-fb12-4174-a30d-7ec9a9920237/download/courts_img.geojson")
-#View(pittsburgh.courts.load)
+pittsburgh.activities.load$type <- lapply(pittsburgh.activities.load$type, function (x) word(x, 1))
+pittsburgh.activities.cent <- pittsburgh.activities.load %>%
+  st_centroid() %>%
+  mutate(longitude = sf::st_coordinates(.)[,1],
+         latitude = sf::st_coordinates(.)[,2]) %>%
+  st_set_geometry(NULL)
+pittsburgh.activities.load <- pittsburgh.activities.load %>%
+  left_join(pittsburgh.activities.cent)
+#View(pittsburgh.activities.load)
 
 pittsburgh.neighborhoods.load <- st_read("https://data.wprdc.org/dataset/e672f13d-71c4-4a66-8f38-710e75ed80a4/resource/4af8e160-57e9-4ebf-a501-76ca1b42fc99/download/pittsburghpaneighborhoods-.geojson")
 
@@ -43,7 +62,20 @@ pittsburgh.neighborhoods.load <- st_read("https://data.wprdc.org/dataset/e672f13
 
 icons <- awesomeIconList(
   ADA = makeAwesomeIcon(icon = "child", library = "fa", markerColor = "green"),
-  NON_ADA = makeAwesomeIcon(icon = "wheelchair", library = "fa", markerColor = "blue")
+  NON_ADA = makeAwesomeIcon(icon = "wheelchair", library = "fa", markerColor = "blue"),
+  Lit = makeAwesomeIcon(icon = "baseball-bat-ball", library = "fa", markerColor = "lightgreen"),
+  Unlit = makeAwesomeIcon(icon = "baseball-bat-ball", library = "fa", markerColor = "darkgreen"),
+  Volleyball = makeAwesomeIcon(icon = "volleyball", library = "fa", markerColor = "orange"),
+  Basketball = makeAwesomeIcon(icon = "basketball", library = "fa", markerColor = "orange"),
+  Pickleball = makeAwesomeIcon(icon = "table-tennis-paddle-ball", library = "fa", markerColor = "orange"),
+  Tennis = makeAwesomeIcon(icon = "baseball", library = "fa", markerColor = "orange"),
+  Hockey = makeAwesomeIcon(icon = "hockey-puck", library = "fa", markerColor = "orange"),
+  Dek = makeAwesomeIcon(icon = "broom-ball", library = "fa", markerColor = "orange"),
+  General = makeAwesomeIcon(icon = "broom-ball", library = "fa", markerColor = "orange"),
+  Street = makeAwesomeIcon(icon = "broom-ball", library = "fa", markerColor = "orange"),
+  Bocce = makeAwesomeIcon(icon = "broom-ball", library = "fa", markerColor = "orange"),
+  Horseshoe = makeAwesomeIcon(icon = "broom-ball", library = "fa", markerColor = "orange"),
+  Lawn = makeAwesomeIcon(icon = "bowling-ball", library = "fa", markerColor = "orange")
 )
 
 # Define UI for application that draws a histogram
@@ -68,13 +100,22 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
                                           choices = unique(sort(pittsburgh.neighborhoods.load$hood)),
                                           options = list('actions-box' = TRUE),
                                           multiple = TRUE,
-                                          selected = unique(sort(pittsburgh.neighborhoods.load$hood))),
+                                          selected = c("Bloomfield", "Central Business District", "Central Lawrenceville", 
+                                                       "Central Oakland", "Crawford-Roberts", "East Hills", "East Liberty",
+                                                       "Friendship", "Garfield", "Glen Hazel", "Greenfield", "Hazelwood",
+                                                       "Highland Park", "Homewood North", "Homewood South", "Homewood West",
+                                                       "Larimer", "Lincoln-Lemington-Belmar", "Lower Lawrenceville", 
+                                                       "Middle Hill", "Morningside", "North Oakland", "Point Breeze", 
+                                                       "Point Breeze North", "Polish Hill", "Regent Square", "Shadyside",
+                                                       "South Oakland", "Squirrel Hill North", "Squirrel Hill South", 
+                                                       "Stanton Heights", "Strip District", "Swisshelm Park", "Upper Hill",
+                                                       "Upper Lawrenceville", "West Oakland")),
                               pickerInput(inputId = "activity",
                                           label = "Activity",
-                                          choices = unique(sort(pittsburgh.activities.load$type)),
+                                          choices = unique(pittsburgh.activities.load$type),
                                           options = list('actions-box' = TRUE),
                                           multiple = TRUE,
-                                          selected = unique(sort(pittsburgh.activities.load$type))),
+                                          selected = unique(pittsburgh.activities.load$type)),
                               actionButton("run", "Show Crime", icon = icon("play"))
                             ),
                             mainPanel(
@@ -112,6 +153,7 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
+  # Get crime data via API Call to WPRDC
   crimeData <- eventReactive(input$neighborhood, {
     # URL Encode the query
     q <- "SELECT * from \"1797ead8-8262-41cc-9099-cbc8a161924b\""
@@ -157,25 +199,29 @@ server <- function(input, output) {
   
   activities <- reactive({
     activities_in_neighborhoods <- st_filter(pittsburgh.activities.load, neighborhoods())
-    #print(nrow(neighborhoods()))
-    #print(nrow(activities_in_neighborhoods))
-    return (activities_in_neighborhoods)
+    activities_filtered <- activities_in_neighborhoods %>% filter(type %in% input$activity)
+    print(nrow(neighborhoods()))
+    print(nrow(activities_filtered))
+    return (activities_filtered)
   })
 
   output$leaflet <- renderLeaflet({
     leaflet() %>%
       addTiles(urlTemplate = "http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga", attribution = "Google", group = "Google") %>%
-      addProviderTiles(provider = providers$Wikimedia, group = "Wiki") %>%
+      addProviderTiles("Stamen.Toner", group = "Stam") %>%
       setView(-79.94073, 40.448544, 13) %>%
-      addLayersControl(baseGroups = c("Google", "Wiki"))
+      addLayersControl(baseGroups = c("Google", "Stam"))
   })
   
   observe({
     active <- activities()
+    print(unique(active$type))
+    View(active)
     leafletProxy("leaflet", data = active) %>%
       clearGroup(group = "active") %>%
       ## Add more info to label later, also make clickable in center
-      addPolygons(popup = ~paste0("<b>", name, "</b>"), group = "active", layerId = ~id, fill = TRUE, color = "orange")
+      addPolygons(popup = ~paste0("<b>", name, "</b>"), group = "active", layerId = ~id, fill = TRUE, color = "orange") %>%
+      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[unlist(type)], popup = ~paste0("<b>", name, "</b>"), group = "active", layerId = ~id)
   })
   
   observe({
@@ -183,7 +229,8 @@ server <- function(input, output) {
     leafletProxy("leaflet", data = fields) %>%
       clearGroup(group = "fields") %>%
       ## Add more info to label later, also make clickable in center
-      addPolygons(popup = ~paste0("<b>", park, "</b>"), group = "fields", layerId = ~id, fill = TRUE, color = "green")
+      addPolygons(popup = ~paste0("<b>", park, "</b>"), group = "fields", layerId = ~id, fill = TRUE, color = "green") %>%
+      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[has_lights], popup = ~paste0("<b>", park, "</b>"), group = "fields", layerId = ~id)
   })
   
   observe({
