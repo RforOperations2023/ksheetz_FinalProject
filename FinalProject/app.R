@@ -10,7 +10,7 @@
 # Kraig Sheetz
 # ksheetz
 
-# Final R Project : Pittsburgh Playgrounds and Fields
+# Final R Project : Pittsburgh Recreational Activity and Non-Constrained Entertainment
 
 library(shiny)
 library(shinythemes)
@@ -180,7 +180,14 @@ server <- function(input, output) {
   
   neighborhoods <- reactive({
     #print(input$neighborhood)
-    pittsburgh.neighborhoods.load %>% filter(hood %in% input$neighborhood)
+    neighborhoods <- pittsburgh.neighborhoods.load
+    if (length(input$neighborhood) > 0) {
+      neighborhoods <- neighborhoods %>% filter(hood %in% input$neighborhood)
+    } else {
+      # Default neighborhood == Shadyside
+      neighborhoods <- neighborhoods %>% filter(hood == "Shadyside")
+    }
+    return (neighborhoods)
   })
   
   playgrounds <- reactive({
@@ -191,7 +198,13 @@ server <- function(input, output) {
   
   activities <- reactive({
     activities_in_neighborhoods <- st_filter(pittsburgh.activities.load, neighborhoods())
-    activities_filtered <- activities_in_neighborhoods %>% filter(type %in% input$activity)
+    if (length(input$activity) > 0) {
+      activities_filtered <- activities_in_neighborhoods %>% filter(type %in% input$activity)
+    } else {
+      # Default sport = Dek Hockey
+      activities_filtered <- activities_in_neighborhoods %>% filter(type == "Basketball")
+    }
+    
     activities_filtered$type <- unlist(activities_filtered$type)
     return (activities_filtered)
   })
@@ -264,7 +277,6 @@ server <- function(input, output) {
       clearGroup(group = "Activities") %>%
       ## Add more info to label later, also make clickable in center
       addPolygons(popup = ~paste0("<b>", name, "</b>"), group = "Activities", layerId = ~id, fill = TRUE, color = "orange") %>%
-      # Add in unlist if this doesnt work
       addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[type], popup = ~paste0("<b>", name, "</b>", "<br>", "Surface Material:", surface_material), 
                         group = "Activities", layerId = ~id)
   })
