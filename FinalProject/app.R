@@ -188,15 +188,45 @@ server <- function(input, output) {
   playgrounds <- reactive({
     # https://stackoverflow.com/questions/67724714/finding-points-with-polygon-in-sf-package
     playgrounds_in_neighborhoods <-  st_filter(pittsburgh.playground.load, neighborhoods())
-    #print(nrow(neighborhoods()))
-    #print(nrow(playgrounds_in_neighborhoods))
     return (playgrounds_in_neighborhoods)
   })
   
   activities <- reactive({
     activities_in_neighborhoods <- st_filter(pittsburgh.activities.load, neighborhoods())
     activities_filtered <- activities_in_neighborhoods %>% filter(type %in% input$activity)
+    activities_filtered$type <- unlist(activities_filtered$type)
     return (activities_filtered)
+  })
+  
+  neighborhood_crime <- reactive({
+    hood_crime <- st_intersection(neighborhoods(), crimeData()) %>%
+      group_by(hood) %>%
+      count()
+    View(hood_crime)
+    return (hood_crime)
+  })
+  
+  allRec <- reactive({
+    fields <- st_join(fieldInputs(), neighborhoods(), join = st_contains, left = TRUE, largest = TRUE)
+    playgrounds <- st_join(playgrounds(), neighborhoods(), join = st_contains, left = TRUE, largest = TRUE)
+    #View(playgrounds)
+    activities <- st_join(activities(), neighborhoods(), join = st_contains, left = TRUE, largest = TRUE)
+    #View(activities)
+
+    
+    field_df <- data.frame(Name = fields$park, Type = "Field", Sport = NA, ADA_Accessible = NA,
+                           Field_Goal_Posts = fields$goal_post, Lights = fields$has_lights, 
+                           Neighborhood = fields$hood, Latitude = fields$intptlat10, Longitude = fields$intptlon10)
+    playground_df <- data.frame(Name = playgrounds$name, Type = "Playground", Sport = NA, ADA_Accessible = playgrounds$ada_accessible,
+                           Field_Goal_Posts = NA, Lights = NA, Neighborhood = playgrounds$hood, 
+                           Latitude = playgrounds$intptlat10, Longitude = playgrounds$intptlon10)
+    activity_df <- data.frame(Name = activities$name, Type = "Activity", Sport = activities$type, ADA_Accessible = NA,
+                                Field_Goal_Posts = NA, Lights = NA, Neighborhood = activities$hood, 
+                                Latitude = activities$intptlat10, Longitude = activities$intptlon10)
+    
+    result = bind_rows(field_df, playground_df, activity_df)
+
+    return(result)
   })
 
   output$leaflet <- renderLeaflet({
@@ -217,7 +247,9 @@ server <- function(input, output) {
       clearGroup(group = "Activities") %>%
       ## Add more info to label later, also make clickable in center
       addPolygons(popup = ~paste0("<b>", name, "</b>"), group = "Activities", layerId = ~id, fill = TRUE, color = "orange") %>%
-      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[unlist(type)], popup = ~paste0("<b>", name, "</b>"), group = "Activities", layerId = ~id)
+      # Add in unlist if this doesnt work
+      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[type], popup = ~paste0("<b>", name, "</b>", "<br>", "Surface Material:", surface_material), 
+                        group = "Activities", layerId = ~id)
   })
   
   observe({
@@ -226,7 +258,7 @@ server <- function(input, output) {
       clearGroup(group = "Fields") %>%
       ## Add more info to label later, also make clickable in center
       addPolygons(popup = ~paste0("<b>", park, "</b>"), group = "Fields", layerId = ~id, fill = TRUE, color = "green") %>%
-      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[has_lights], popup = ~paste0("<b>", park, "</b>"), group = "Fields", layerId = ~id)
+      addAwesomeMarkers(lng = ~longitude, lat = ~latitude, icon = ~icons[has_lights], popup = ~paste0("<b>", park, "</b>", "<br>", "Fields:", field_usage), group = "Fields", layerId = ~id)
   })
   
   observe({
@@ -241,7 +273,7 @@ server <- function(input, output) {
     play <- playgrounds()
     leafletProxy("leaflet", data = play) %>%
       clearGroup(group = "Playgrounds") %>%
-      addAwesomeMarkers(icon = ~icons[ada_accessible], popup = ~paste0("<b>", name, "</b>"), group = "Playgrounds", layerId = ~id)
+      addAwesomeMarkers(icon = ~icons[ada_accessible], popup = ~paste0("<b>", name, "</b>", "<br>", "Equipment:", equipment_type), group = "Playgrounds", layerId = ~id)
   })
   
   observe({
@@ -262,7 +294,7 @@ server <- function(input, output) {
   })
   # Display results in Table
   output$results <- DT::renderDataTable(
-    crimeData(),
+    allRec(),
     extensions = 'Buttons',
     options = list(scrollX = TRUE,
                    dom = 'Bplfrti',
