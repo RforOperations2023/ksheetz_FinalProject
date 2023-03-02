@@ -106,7 +106,8 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
                                           #              "South Oakland", "Squirrel Hill North", "Squirrel Hill South", 
                                           #              "Stanton Heights", "Strip District", "Swisshelm Park", "Upper Hill",
                                           #              "Upper Lawrenceville", "West Oakland")
-                                          selected = c("South Oakland", "Squirrel Hill North", "Squirrel Hill South")
+                                          selected = c("Point Breeze", "Shadyside", "South Oakland", "Squirrel Hill North", 
+                                                       "Squirrel Hill South")
                                           ),
                               pickerInput(inputId = "activity",
                                           label = "Activity",
@@ -133,6 +134,8 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
                           fluidPage(
                             # Graph Outputs
                             plotlyOutput("rec_per_neighborhood"),
+                            br(),
+                            br(),
                             plotlyOutput("crime_per_neighborhood")
                           )
                  ),
@@ -226,8 +229,10 @@ server <- function(input, output) {
     activity_df <- data.frame(Name = activities$name, Type = "Activity", Sport = activities$type, ADA_Accessible = NA,
                                 GoalPosts = NA, Lights = NA, Neighborhood = activities$hood, 
                                 Latitude = activities$intptlat10, Longitude = activities$intptlon10)
+    
     result = bind_rows(field_df, playground_df, activity_df)
-    return(result)
+    
+    return(result[order(result$Name),])
   })
   
   neighborhood_crime <- reactive({
