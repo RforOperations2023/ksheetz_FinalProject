@@ -96,16 +96,18 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
                                           choices = unique(sort(pittsburgh.neighborhoods.load$hood)),
                                           options = list('actions-box' = TRUE),
                                           multiple = TRUE,
-                                          selected = c("Bloomfield", "Central Business District", "Central Lawrenceville", 
-                                                       "Central Oakland", "Crawford-Roberts", "East Hills", "East Liberty",
-                                                       "Friendship", "Garfield", "Glen Hazel", "Greenfield", "Hazelwood",
-                                                       "Highland Park", "Homewood North", "Homewood South", "Homewood West",
-                                                       "Larimer", "Lincoln-Lemington-Belmar", "Lower Lawrenceville", 
-                                                       "Middle Hill", "Morningside", "North Oakland", "Point Breeze", 
-                                                       "Point Breeze North", "Polish Hill", "Regent Square", "Shadyside",
-                                                       "South Oakland", "Squirrel Hill North", "Squirrel Hill South", 
-                                                       "Stanton Heights", "Strip District", "Swisshelm Park", "Upper Hill",
-                                                       "Upper Lawrenceville", "West Oakland")),
+                                          # selected = c("Bloomfield", "Central Business District", "Central Lawrenceville", 
+                                          #              "Central Oakland", "Crawford-Roberts", "East Hills", "East Liberty",
+                                          #              "Friendship", "Garfield", "Glen Hazel", "Greenfield", "Hazelwood",
+                                          #              "Highland Park", "Homewood North", "Homewood South", "Homewood West",
+                                          #              "Larimer", "Lincoln-Lemington-Belmar", "Lower Lawrenceville", 
+                                          #              "Middle Hill", "Morningside", "North Oakland", "Point Breeze", 
+                                          #              "Point Breeze North", "Polish Hill", "Regent Square", "Shadyside",
+                                          #              "South Oakland", "Squirrel Hill North", "Squirrel Hill South", 
+                                          #              "Stanton Heights", "Strip District", "Swisshelm Park", "Upper Hill",
+                                          #              "Upper Lawrenceville", "West Oakland")
+                                          selected = c("South Oakland", "Squirrel Hill North", "Squirrel Hill South")
+                                          ),
                               pickerInput(inputId = "activity",
                                           label = "Activity",
                                           choices = unique(pittsburgh.activities.load$type),
@@ -128,14 +130,10 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
                           )
                  ),
                  tabPanel("Graphs",
-                          sidebarLayout(
-                            sidebarPanel(
-                              # Graph inputs
-                            ),
-                            mainPanel(
-
-                              # Graph outputs
-                            )
+                          fluidPage(
+                            # Graph Outputs
+                            plotlyOutput("rec_per_neighborhood"),
+                            plotlyOutput("crime_per_neighborhood")
                           )
                  ),
                  # Data Table Pannel
@@ -198,14 +196,6 @@ server <- function(input, output) {
     return (activities_filtered)
   })
   
-  neighborhood_crime <- reactive({
-    hood_crime <- st_intersection(neighborhoods(), crimeData()) %>%
-      group_by(hood) %>%
-      count()
-    View(hood_crime)
-    return (hood_crime)
-  })
-  
   allRec <- reactive({
     fields <- st_join(fieldInputs(), neighborhoods(), join = st_contains, left = TRUE, largest = TRUE)
     playgrounds <- st_join(playgrounds(), neighborhoods(), join = st_contains, left = TRUE, largest = TRUE)
@@ -215,19 +205,46 @@ server <- function(input, output) {
 
     
     field_df <- data.frame(Name = fields$park, Type = "Field", Sport = NA, ADA_Accessible = NA,
-                           Field_Goal_Posts = fields$goal_post, Lights = fields$has_lights, 
+                           GoalPosts = fields$goal_post, Lights = fields$has_lights, 
                            Neighborhood = fields$hood, Latitude = fields$intptlat10, Longitude = fields$intptlon10)
     playground_df <- data.frame(Name = playgrounds$name, Type = "Playground", Sport = NA, ADA_Accessible = playgrounds$ada_accessible,
-                           Field_Goal_Posts = NA, Lights = NA, Neighborhood = playgrounds$hood, 
+                           GoalPosts = NA, Lights = NA, Neighborhood = playgrounds$hood, 
                            Latitude = playgrounds$intptlat10, Longitude = playgrounds$intptlon10)
     activity_df <- data.frame(Name = activities$name, Type = "Activity", Sport = activities$type, ADA_Accessible = NA,
-                                Field_Goal_Posts = NA, Lights = NA, Neighborhood = activities$hood, 
+                                GoalPosts = NA, Lights = NA, Neighborhood = activities$hood, 
                                 Latitude = activities$intptlat10, Longitude = activities$intptlon10)
-    
     result = bind_rows(field_df, playground_df, activity_df)
-
     return(result)
   })
+  
+  neighborhood_crime <- reactive({
+    hood_crime <- st_intersection(neighborhoods(), crimeData()) #%>%
+      #group_by(hood) %>%
+      #count()
+    #View(hood_crime)
+    return (hood_crime)
+  })
+  
+  output$crime_per_neighborhood <- renderPlotly({
+    ggplot(data = neighborhood_crime(), aes(x = hood, fill = CLEAREDFLAG)) +
+      geom_bar() + 
+      ggtitle("Crime by Neighborhood") +
+      theme(plot.title = element_text(hjust = 0.5)) +
+      theme(axis.text.x = element_text(angle = 90)) +
+      xlab("Neighborhood") +
+      ylab("Crime")
+  })
+  
+  output$rec_per_neighborhood <- renderPlotly({
+    ggplot(data = allRec(), aes(x = Neighborhood, fill = Type)) +
+      geom_bar() + 
+      ggtitle("Recreation by Neighborhood") +
+      theme(plot.title = element_text(hjust = 0.5)) +
+      theme(axis.text.x = element_text(angle = 90)) +
+      xlab("Neighborhood") +
+      ylab("# Recreational Facilities")
+  })
+  
 
   output$leaflet <- renderLeaflet({
     leaflet() %>%
