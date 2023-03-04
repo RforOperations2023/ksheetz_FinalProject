@@ -143,7 +143,7 @@ ui <- navbarPage("Pittsburgh Recreational Activities and Non-Constrained Enterta
 server <- function(input, output) {
   
   # Get crime data via API Call to WPRDC - only run when the user presses Load/Update Crime Data button
-  crimeLoad <- eventReactive(input$update_crime, {
+  crimeLoad <- eventReactive(input$neighborhood, {
     # URL Encode the query
     q <- "SELECT * from \"1797ead8-8262-41cc-9099-cbc8a161924b\""
     formatQuery <- URLencode(q, repeated = TRUE)
@@ -288,6 +288,7 @@ server <- function(input, output) {
   # Update activities via leaflet proxy
   observe({
     active <- activities()
+    print(~icons["Basketball"])
     leafletProxy("leaflet", data = active) %>%
       clearGroup(group = "Activities") %>%
       addPolygons(popup = ~paste0("<b>", name, "</b>"), group = "Activities", layerId = ~id, fill = TRUE, color = "orange") %>%
